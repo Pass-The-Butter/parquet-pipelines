@@ -42,8 +42,8 @@ SELECT
     END AS value_segment,
     CASE 
         WHEN m.last_order_date IS NULL THEN 'NEVER_PURCHASED'
-        WHEN m.last_order_date >= CURRENT_DATE - INTERVAL '30 days' THEN 'ACTIVE'
-        WHEN m.last_order_date >= CURRENT_DATE - INTERVAL '90 days' THEN 'AT_RISK'
+        WHEN m.last_order_date >= CURRENT_DATE - INTERVAL '30 DAYS' THEN 'ACTIVE'
+        WHEN m.last_order_date >= CURRENT_DATE - INTERVAL '90 DAYS' THEN 'AT_RISK'
         ELSE 'INACTIVE'
     END AS lifecycle_stage
 FROM silver.customers_cleaned c
