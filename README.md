@@ -319,3 +319,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **Made with ❤️ for data teams who love SQL but need modern tools.**
 
 *Transform your stored procedures into portable, version-controlled data pipelines today!*
+
+by Peter :)
