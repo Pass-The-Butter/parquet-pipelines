@@ -2,9 +2,9 @@ connection:
   type: mssql
   server: Frank
   database: SampleRetailDB
-  trusted_connection: true
   username: sa
-  password: ${DB_PASSWORD}  # Will read from environment variable
+  password: "${DB_PASSWORD}"
+  trusted_connection: false
 
 tables:
   - name: customers

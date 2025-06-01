@@ -182,21 +182,30 @@ class ParquetPipelines:
             logger.error(f"Failed to extract table {full_table_name}: {e}")
             raise
     
+    def _resolve_env_vars(self, value):
+        """Resolve environment variables in a string value like ${VAR}."""
+        import re, os
+        if isinstance(value, str):
+            pattern = re.compile(r'\$\{([^}]+)\}')
+            def replacer(match):
+                return os.environ.get(match.group(1), match.group(0))
+            return pattern.sub(replacer, value)
+        return value
+
     def _build_connection_string(self, source_config: Dict) -> str:
         """Build database connection string from configuration."""
-        db_type = source_config.get('type', 'mssql')
+        connection = source_config.get('connection', {})
+        db_type = self._resolve_env_vars(connection.get('type', 'mssql'))
         
         if db_type == 'mssql':
-            server = source_config['server']
-            database = source_config['database']
-            
-            if source_config.get('trusted_connection', True):
+            server = self._resolve_env_vars(connection['server'])
+            database = self._resolve_env_vars(connection['database'])
+            if connection.get('trusted_connection', True):
                 return f"mssql+pyodbc://{server}/{database}?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
             else:
-                username = source_config['username']
-                password = source_config['password']
+                username = self._resolve_env_vars(connection['username'])
+                password = self._resolve_env_vars(connection['password'])
                 return f"mssql+pyodbc://{username}:{password}@{server}/{database}?driver=ODBC+Driver+17+for+SQL+Server"
-        
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
     

@@ -1,0 +1,11 @@
+name: retail_analytics
+description: Complete retail analytics pipeline
+steps:
+  # Silver layer - data cleaning
+  - sql/silver/customers_cleaned.sql
+  - sql/silver/products_cleaned.sql
+  - sql/silver/orders_cleaned.sql
+  
+  # Gold layer - dimensional modeling
+  - sql/gold/dim_customers.sql
+  - sql/gold/fact_sales.sql
