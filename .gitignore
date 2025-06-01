@@ -12,7 +12,7 @@ config/*_prod.yml
 config/*_production.yml
 .env
 .env.*
-
+.vscode
 # Python
 __pycache__/
 *.py[cod]
