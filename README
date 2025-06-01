@@ -1,63 +1,68 @@
-# 📊 Parquet Pipelines
+# Parquet Pipelines
 
-> A minimal, SQL-first data transformation framework for teams migrating from stored procedures to modern analytics.
+A minimal, SQL-first data transformation framework for teams migrating from stored procedures to modern analytics.
 
-**Parquet Pipelines** replaces complex ETL tools with a simple, lightweight framework that transforms your existing SQL knowledge into a portable, version-controlled data pipeline. Perfect for teams with strong SQL skills but limited Python/Git/orchestration experience.
+Parquet Pipelines replaces complex ETL tools with a simple, lightweight framework that transforms your existing SQL knowledge into a portable, version-controlled data pipeline. Perfect for teams with strong SQL skills but limited Python/Git/orchestration experience.
 
-## 🎯 Why Parquet Pipelines?
+## Features
 
-- **SQL-First**: Write transformations in pure SQL, not Python
-- **Zero Infrastructure**: Runs locally, no servers or orchestration needed
-- **Portable**: Works on Windows laptops, Docker containers, or cloud VMs
-- **Power BI Ready**: Outputs dimensional models perfect for business intelligence
-- **Metadata Rich**: Every output includes embedded lineage and documentation
-- **Git Friendly**: Version control your entire data pipeline
+- SQL-First: Write transformations in pure SQL, not Python
+- Zero Infrastructure: Runs locally, no servers or orchestration needed
+- Portable: Works on Windows laptops, Docker containers, or cloud VMs
+- Power BI Ready: Outputs dimensional models perfect for business intelligence
+- Metadata Rich: Every output includes embedded lineage and documentation
+- Git Friendly: Version control your entire data pipeline
 
-## 🚀 Quick Start
+## Installation
 
-### Windows Installation
+### Windows
 
 ```powershell
 # Run as Administrator
 .\install-windows.ps1
 ```
 
-### Linux/Mac Installation
+### Linux/Mac
 
 ```bash
 chmod +x install-linux.sh
 ./install-linux.sh
 ```
 
-### Manual Installation
+### Manual Setup
 
+1. Create and activate virtual environment:
 ```bash
-# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
 
-# Install dependencies
+2. Install dependencies:
+```bash
 pip install -r requirements.txt
 pip install -e .
 ```
 
-### Initialize Your First Project
+## Quick Start
 
+1. Initialize your project:
 ```bash
-# Create project structure and example configs
 python -m parquet_pipelines init
+```
 
-# Edit database connection
-# Edit config/source_tables.yml
+2. Configure your database connection in `config/source_tables.yml`
 
-# Extract your data
+3. Extract your data:
+```bash
 python -m parquet_pipelines extract --all
+```
 
-# Run transformations
+4. Run transformations:
+```bash
 python -m parquet_pipelines run --pipeline main
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 my-data-project/
@@ -81,7 +86,7 @@ my-data-project/
 └── README.md               # Project documentation
 ```
 
-## 🔧 Configuration
+## Configuration
 
 ### Database Connection (`config/source_tables.yml`)
 
@@ -143,7 +148,7 @@ monthly_report:
       - sql/gold/dim_product_performance.sql
 ```
 
-## 📝 SQL File Format
+## SQL File Format
 
 All SQL transformation files must include a metadata header:
 
@@ -197,7 +202,7 @@ LEFT JOIN silver.customers_cleaned c ON o.customer_id = c.customer_id
 WHERE o.quantity > 0 AND o.unit_price > 0;
 ```
 
-## 🖥️ Command Line Interface
+## Command Line Interface
 
 ### Core Commands
 
@@ -227,7 +232,7 @@ pp extract --all
 pp run --named daily_refresh
 ```
 
-## 🐳 Docker Usage
+## Docker Usage
 
 ### Development with Docker Compose
 
@@ -254,29 +259,29 @@ docker run -v $(pwd):/app/workspace parquet-pipelines extract --all
 docker run -v $(pwd):/app/workspace parquet-pipelines run --pipeline main
 ```
 
-## 🔄 Medallion Architecture
+## Medallion Architecture
 
 Parquet Pipelines implements a simplified medallion architecture:
 
-### 🥉 Bronze Layer
+### Bronze Layer
 - **Purpose**: Raw data extraction from source systems
 - **Format**: Parquet files with embedded metadata
 - **Location**: `data/bronze/`
 - **Example**: `customers.parquet`, `orders.parquet`
 
-### 🥈 Silver Layer  
+### Silver Layer  
 - **Purpose**: Cleaned, validated, and standardized data
 - **Transformations**: Data quality, standardization, deduplication
 - **Location**: `data/silver/`
 - **Example**: `customers_cleaned.parquet`
 
-### 🥇 Gold Layer
+### Gold Layer
 - **Purpose**: Business-ready facts and dimensions
 - **Transformations**: Business logic, aggregations, dimensional modeling
 - **Location**: `data/gold/`
 - **Example**: `fact_sales.parquet`, `dim_customers.parquet`
 
-## 🧠 DuckLake Integration
+## DuckLake Integration
 
 Parquet Pipelines includes full integration with [DuckLake](https://duckdb.org/2025/05/27/ducklake.html), providing:
 
@@ -301,7 +306,7 @@ JOIN silver.customers_cleaned s ON g.customer_id = s.customer_id
 GROUP BY g.customer_segment;
 ```
 
-## 📊 Power BI Integration
+## Power BI Integration
 
 The gold layer outputs are designed for direct consumption in Power BI:
 
@@ -332,7 +337,7 @@ dim_products
 └── price_tier
 ```
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -377,7 +382,7 @@ main()
 " extract --all
 ```
 
-## 🚀 Advanced Usage
+## Advanced Usage
 
 ### Custom SQL Transformations
 
@@ -447,7 +452,7 @@ cp config/source_tables.yml config/source_tables_prod.yml
 PARQUET_PIPELINES_CONFIG=prod python -m parquet_pipelines extract --all
 ```
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Here's how to get started:
 
@@ -455,7 +460,7 @@ We welcome contributions! Here's how to get started:
 2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
 3. **Make your changes** and add tests
 4. **Run tests**: `pytest tests/`
-5. **Submit a pull request**
+5. **Submit a pull request`
 
 ### Development Setup
 
@@ -468,17 +473,17 @@ pip install -e ".[dev]"
 pytest
 ```
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Support
+## Support
 
 - **Documentation**: This README and inline help (`python -m parquet_pipelines --help`)
 - **Issues**: [GitHub Issues](https://github.com/yourorg/parquet-pipelines/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/yourorg/parquet-pipelines/discussions)
 
-## 🗺️ Roadmap
+## Roadmap
 
 - [ ] **Web UI**: Simple web interface for monitoring pipelines
 - [ ] **More Databases**: PostgreSQL, MySQL, Oracle support
