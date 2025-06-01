@@ -21,6 +21,8 @@
 
 ## 🚀 Quick Start
 
+This is a Work in Progress but the basic functionality works fine :)
+
 ### 1. Clone and Setup
 
 ```bash
