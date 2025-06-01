@@ -1,8 +1,10 @@
 connection:
   type: mssql
-  server: localhost\SQLEXPRESS  # Change to your SQL Server instance
+  server: Frank
   database: SampleRetailDB
   trusted_connection: true
+  username: sa
+  password: ${DB_PASSWORD}  # Will read from environment variable
 
 tables:
   - name: customers

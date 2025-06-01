@@ -11,7 +11,7 @@ setup(
     description="A minimal, SQL-first data transformation framework",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourorg/parquet-pipelines",
+    url="https://github.com/Pass-The-Butter/parquet-pipelines",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -23,6 +23,7 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12"
     ],
     python_requires=">=3.8",
     install_requires=[
