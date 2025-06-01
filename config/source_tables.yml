@@ -1,0 +1,49 @@
+connection:
+  type: mssql
+  server: localhost\SQLEXPRESS  # Change to your SQL Server instance
+  database: SampleRetailDB
+  trusted_connection: true
+
+tables:
+  - name: customers
+    schema: dbo
+    description: Customer master data
+    query: |
+      SELECT 
+        customer_id, first_name, last_name, email, phone, address, 
+        city, state, zip_code, date_of_birth, created_date, 
+        updated_date, active, customer_type
+      FROM dbo.customers WHERE active = 1
+
+  - name: products
+    schema: dbo
+    description: Product catalog
+    query: |
+      SELECT 
+        p.product_id, p.product_name, pc.category_name as category,
+        p.price, p.cost, p.sku, p.description, p.weight_lbs,
+        p.supplier, p.created_date, p.updated_date, p.active, p.stock_quantity
+      FROM dbo.products p
+      LEFT JOIN dbo.product_categories pc ON p.category_id = pc.category_id
+      WHERE p.active = 1
+
+  - name: orders
+    schema: dbo
+    description: Order transactions
+    query: |
+      SELECT order_id, customer_id, order_date, ship_date, delivery_date,
+             status, shipping_address, shipping_city, shipping_state, shipping_zip,
+             payment_method, subtotal, tax_amount, shipping_cost, total_amount,
+             created_date, notes
+      FROM dbo.orders
+      WHERE order_date >= DATEADD(month, -12, GETDATE())
+
+  - name: order_items
+    schema: dbo
+    description: Order line items
+    query: |
+      SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity,
+             oi.unit_price, oi.line_total, oi.discount_amount, o.order_date
+      FROM dbo.order_items oi
+      INNER JOIN dbo.orders o ON oi.order_id = o.order_id
+      WHERE o.order_date >= DATEADD(month, -12, GETDATE())
