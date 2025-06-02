@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🦆 DuckLake Explorer - Parquet Pipelines</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            padding: 1rem 2rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: inline-block;
+        }
+
+        .header p {
+            color: #666;
+            margin-top: 0.5rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 2rem;
+            height: calc(100vh - 120px);
+        }
+
+        .sidebar {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            overflow-y: auto;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            gap: 1rem;
+        }
+
+        .query-section {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .results-section {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .schema-tree {
+            font-size: 0.9rem;
+        }
+
+        .schema-item {
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .schema-item:hover {
+            background: rgba(102, 126, 234, 0.1);
+            transform: translateX(4px);
+        }
+
+        .schema-name {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 1rem;
+        }
+
+        .table-item {
+            margin-left: 1rem;
+            padding: 0.3rem 0.5rem;
+            color: #666;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .table-item:hover {
+            background: rgba(118, 75, 162, 0.1);
+            color: #764ba2;
+        }
+
+        .quick-queries {
+            margin-top: 2rem;
+        }
+
+        .quick-query-btn {
+            display: block;
+            width: 100%;
+            padding: 0.8rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            text-align: left;
+        }
+
+        .quick-query-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .query-input {
+            width: 100%;
+            height: 120px;
+            padding: 1rem;
+            border: 2px solid #e1e5e9;
+            border-radius: 12px;
+            font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+            font-size: 0.9rem;
+            resize: vertical;
+            transition: border-color 0.3s ease;
+        }
+
+        .query-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .run-btn {
+            margin-top: 1rem;
+            padding: 0.8rem 2rem;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .run-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            overflow: hidden;
+            border-radius: 12px;
+        }
+
+        .results-table th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 0.8rem;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .results-table td {
+            padding: 0.6rem 0.8rem;
+            border-bottom: 1px solid #e1e5e9;
+        }
+
+        .results-table tr:nth-child(even) {
+            background: rgba(102, 126, 234, 0.05);
+        }
+
+        .results-table tr:hover {
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .results-container {
+            flex: 1;
+            overflow: auto;
+            margin-top: 1rem;
+        }
+
+        .status {
+            margin-top: 1rem;
+            padding: 0.8rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .status.success {
+            background: rgba(76, 175, 80, 0.1);
+            color: #2e7d32;
+            border: 1px solid rgba(76, 175, 80, 0.3);
+        }
+
+        .status.error {
+            background: rgba(244, 67, 54, 0.1);
+            color: #c62828;
+            border: 1px solid rgba(244, 67, 54, 0.3);
+        }
+
+        .sample-queries {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .sample-query {
+            padding: 0.6rem;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.8rem;
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
+
+        .sample-query:hover {
+            background: rgba(102, 126, 234, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .emoji {
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><span class="emoji">🦆</span> DuckLake Explorer</h1>
+        <p>Visual interface for your Parquet Pipelines data lake</p>
+    </div>
+
+    <div class="container">
+        <div class="sidebar">
+            <div class="section-title">
+                <span class="emoji">🗂️</span> Schema Browser
+            </div>
+            <div class="schema-tree" id="schemaTree">
+                <div class="schema-item">
+                    <div class="schema-name">📊 Bronze Layer</div>
+                    <div class="table-item" onclick="selectTable('bronze', 'customers')">👥 customers</div>
+                    <div class="table-item" onclick="selectTable('bronze', 'orders')">🛒 orders</div>
+                    <div class="table-item" onclick="selectTable('bronze', 'order_items')">📋 order_items</div>
+                    <div class="table-item" onclick="selectTable('bronze', 'products')">📦 products</div>
+                </div>
+                
+                <div class="schema-item">
+                    <div class="schema-name">🥈 Silver Layer</div>
+                    <div class="table-item" onclick="selectTable('silver', 'customers_cleaned')">👥 customers_cleaned</div>
+                    <div class="table-item" onclick="selectTable('silver', 'marketing_customers')">🎯 marketing_customers</div>
+                    <div class="table-item" onclick="selectTable('silver', 'product_interactions')">🔗 product_interactions</div>
+                </div>
+                
+                <div class="schema-item">
+                    <div class="schema-name">🥇 Gold Layer</div>
+                    <div class="table-item" onclick="selectTable('gold', 'dim_customers')">👤 dim_customers</div>
+                    <div class="table-item" onclick="selectTable('gold', 'fact_sales')">💰 fact_sales</div>
+                    <div class="table-item" onclick="selectTable('gold', 'customer_rfm_analysis')">📊 customer_rfm_analysis</div>
+                    <div class="table-item" onclick="selectTable('gold', 'product_affinity_analysis')">🛍️ product_affinity_analysis</div>
+                </div>
+            </div>
+
+            <div class="quick-queries">
+                <div class="section-title">
+                    <span class="emoji">⚡</span> Quick Insights
+                </div>
+                <button class="quick-query-btn" onclick="runQuickQuery('rfm')">
+                    🎯 Customer RFM Segments
+                </button>
+                <button class="quick-query-btn" onclick="runQuickQuery('affinity')">
+                    🛒 Product Bundles
+                </button>
+                <button class="quick-query-btn" onclick="runQuickQuery('generations')">
+                    👥 Generational Analysis
+                </button>
+                <button class="quick-query-btn" onclick="runQuickQuery('sales_trends')">
+                    📈 Sales Trends
+                </button>
+                <button class="quick-query-btn" onclick="runQuickQuery('top_customers')">
+                    🌟 Top Customers
+                </button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="query-section">
+                <div class="section-title">
+                    <span class="emoji">💻</span> SQL Query
+                </div>
+                <textarea class="query-input" id="queryInput" placeholder="SELECT * FROM gold.customer_rfm_analysis LIMIT 10;&#10;&#10;-- Try some sample queries:&#10;-- Customer segments by value&#10;-- Product performance analysis&#10;-- Seasonal buying patterns"></textarea>
+                <button class="run-btn" onclick="simulateQuery()">
+                    <span class="emoji">▶️</span> Run Query
+                </button>
+                
+                <div class="sample-queries">
+                    <div class="sample-query" onclick="loadSampleQuery('table_info')">
+                        📋 Show All Tables
+                    </div>
+                    <div class="sample-query" onclick="loadSampleQuery('customer_segments')">
+                        🎯 Customer Segments
+                    </div>
+                    <div class="sample-query" onclick="loadSampleQuery('monthly_sales')">
+                        📅 Monthly Sales
+                    </div>
+                    <div class="sample-query" onclick="loadSampleQuery('product_performance')">
+                        📦 Product Performance
+                    </div>
+                </div>
+            </div>
+
+            <div class="results-section">
+                <div class="section-title">
+                    <span class="emoji">📊</span> Query Results
+                </div>
+                <div class="results-container" id="resultsContainer">
+                    <div style="text-align: center; color: #666; margin-top: 2rem;">
+                        <span class="emoji" style="font-size: 3rem;">🦆</span>
+                        <p>Welcome to DuckLake Explorer!</p>
+                        <p>Click on tables or run queries to explore your data</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function selectTable(schema, table) {
+            const query = `SELECT * FROM ${schema}.${table} LIMIT 20;`;
+            document.getElementById('queryInput').value = query;
+        }
+
+        function loadSampleQuery(type) {
+            const queries = {
+                'table_info': `SELECT table_schema, table_name, table_type 
+FROM information_schema.tables 
+WHERE table_schema IN ('bronze', 'silver', 'gold')
+ORDER BY table_schema, table_name;`,
+                
+                'customer_segments': `SELECT 
+    rfm_segment, 
+    COUNT(*) as customers,
+    ROUND(AVG(total_spent), 2) as avg_spent,
+    marketing_action
+FROM gold.customer_rfm_analysis 
+GROUP BY rfm_segment, marketing_action
+ORDER BY avg_spent DESC;`,
+                
+                'monthly_sales': `SELECT 
+    order_year,
+    order_month,
+    COUNT(*) as orders,
+    ROUND(SUM(line_total), 2) as revenue
+FROM gold.fact_sales 
+GROUP BY order_year, order_month
+ORDER BY order_year DESC, order_month DESC;`,
+                
+                'product_performance': `SELECT 
+    product_a_name || ' + ' || product_b_name as bundle,
+    times_bought_together,
+    customers_bought_both,
+    marketing_opportunity
+FROM gold.product_affinity_analysis 
+ORDER BY times_bought_together DESC
+LIMIT 10;`
+            };
+            
+            document.getElementById('queryInput').value = queries[type];
+        }
+
+        function runQuickQuery(type) {
+            const queries = {
+                'rfm': `SELECT rfm_segment, COUNT(*) as customers, ROUND(AVG(total_spent), 2) as avg_spent FROM gold.customer_rfm_analysis GROUP BY rfm_segment ORDER BY avg_spent DESC;`,
+                'affinity': `SELECT product_a_name, product_b_name, times_bought_together FROM gold.product_affinity_analysis ORDER BY times_bought_together DESC LIMIT 5;`,
+                'generations': `SELECT generation, COUNT(*) as customers, ROUND(AVG(total_spent), 2) as avg_spent FROM gold.customer_rfm_analysis GROUP BY generation ORDER BY avg_spent DESC;`,
+                'sales_trends': `SELECT order_month_start, COUNT(*) as orders, ROUND(SUM(line_total), 2) as revenue FROM gold.fact_sales GROUP BY order_month_start ORDER BY order_month_start DESC;`,
+                'top_customers': `SELECT first_name || ' ' || last_name as customer, total_spent, total_orders, rfm_segment FROM gold.customer_rfm_analysis ORDER BY total_spent DESC LIMIT 10;`
+            };
+            
+            document.getElementById('queryInput').value = queries[type];
+            simulateQuery();
+        }
+
+        function simulateQuery() {
+            const resultsContainer = document.getElementById('resultsContainer');
+            const query = document.getElementById('queryInput').value;
+            
+            // Show loading state
+            resultsContainer.innerHTML = `
+                <div style="text-align: center; margin-top: 2rem;">
+                    <span class="emoji" style="font-size: 2rem;">⏳</span>
+                    <p>Executing query...</p>
+                </div>
+            `;
+            
+            // Simulate query execution
+            setTimeout(() => {
+                resultsContainer.innerHTML = `
+                    <div class="status success">
+                        <span class="emoji">✅</span> Query executed successfully! 
+                        <br><br>
+                        <strong>To run real queries:</strong>
+                        <ol style="margin-top: 0.5rem;">
+                            <li>Open terminal in your project directory</li>
+                            <li>Run: <code>duckdb ducklake_meta.duckdb</code></li>
+                            <li>Copy and paste your SQL queries</li>
+                            <li>Or use: <code>python -c "import duckdb; conn = duckdb.connect('ducklake_meta.duckdb'); print(conn.execute('YOUR_QUERY_HERE').fetchall())"</code></li>
+                        </ol>
+                        
+                        <br>
+                        <strong>Your Query:</strong>
+                        <pre style="background: rgba(0,0,0,0.05); padding: 1rem; border-radius: 8px; margin-top: 0.5rem; font-size: 0.85rem;">${query}</pre>
+                    </div>
+                `;
+            }, 1000);
+        }
+
+        // Initialize with welcome message
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🦆 DuckLake Explorer loaded! Click around to explore your data.');
+        });
+    </script>
+</body>
+</html>

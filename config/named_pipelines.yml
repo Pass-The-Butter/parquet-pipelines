@@ -1,0 +1,20 @@
+marketing_insights:
+  description: Comprehensive marketing analytics with RFM analysis and customer segmentation
+  extract:
+    tables:
+      - dbo.customers
+      - dbo.orders
+      - dbo.order_items
+      - dbo.products
+      - dbo.customer_loyalty
+      - dbo.product_reviews
+  transform:
+    steps:
+      # Silver layer - marketing focused data prep
+      - sql/silver/marketing_customers.sql
+      - sql/silver/product_interactions.sql
+      
+      # Gold layer - marketing insights
+      - sql/gold/customer_rfm_analysis.sql
+      - sql/gold/product_affinity_analysis.sql
+      
