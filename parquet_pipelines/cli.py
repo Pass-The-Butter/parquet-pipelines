@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Parquet Pipelines CLI Application
-A minimal, SQL-first data transformation framework for teams migrating from stored procedures.
+Parquet Pipelines CLI Application with Proper DuckLake Integration
 """
 
 import os
@@ -28,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class ParquetPipelines:
-    """Main application class for Parquet Pipelines framework."""
+    """Main application class for Parquet Pipelines framework with DuckLake integration."""
     
     def __init__(self, base_dir: Path = None):
         """Initialize the pipeline framework."""
@@ -38,8 +37,10 @@ class ParquetPipelines:
         self.sql_dir = self.base_dir / "sql"
         self.scripts_dir = self.base_dir / "scripts"
         
-        # DuckLake metastore connection
-        self.ducklake_path = self.base_dir / "ducklake_meta.duckdb"
+        # DuckLake configuration
+        self.ducklake_catalog = self.base_dir / "ducklake_catalog.duckdb"
+        self.ducklake_data_path = self.data_dir / "ducklake_files"
+        self.ducklake_name = "parquet_pipelines"
         self.duck_conn = None
         
         # Ensure directory structure exists
@@ -48,9 +49,10 @@ class ParquetPipelines:
     def _ensure_directory_structure(self):
         """Create required directory structure if it doesn't exist."""
         directories = [
-            self.data_dir / "bronze",
+            self.data_dir / "bronze",  # Keep for compatibility
             self.data_dir / "silver", 
             self.data_dir / "gold",
+            self.ducklake_data_path,  # DuckLake data files
             self.config_dir,
             self.sql_dir / "silver",
             self.sql_dir / "gold",
@@ -62,77 +64,122 @@ class ParquetPipelines:
             logger.info(f"Ensured directory exists: {directory}")
     
     def _get_duck_connection(self):
-        """Get or create DuckDB connection for DuckLake metastore."""
+        """Get or create DuckDB connection with DuckLake properly configured."""
         if self.duck_conn is None:
-            self.duck_conn = duckdb.connect(str(self.ducklake_path))
-            # Initialize DuckLake schemas
+            # Create connection to catalog database
+            self.duck_conn = duckdb.connect(str(self.ducklake_catalog))
+            
+            # Install and load DuckLake extension
+            logger.info("Installing DuckLake extension...")
+            self.duck_conn.execute("INSTALL ducklake")
+            self.duck_conn.execute("LOAD ducklake")
+            
+            # Check if DuckLake is already attached
+            attached_dbs = self.duck_conn.execute("SHOW DATABASES").fetchall()
+            ducklake_attached = any(db[0] == self.ducklake_name for db in attached_dbs)
+            
+            if not ducklake_attached:
+                # Attach or create DuckLake with proper syntax
+                ducklake_path = f"ducklake:{self.ducklake_catalog}"
+                data_path = str(self.ducklake_data_path)
+                
+                try:
+                    # Try to attach existing DuckLake
+                    self.duck_conn.execute(f"ATTACH '{ducklake_path}' AS {self.ducklake_name}")
+                    logger.info(f"Attached existing DuckLake: {self.ducklake_name}")
+                except:
+                    # Create new DuckLake
+                    self.duck_conn.execute(
+                        f"ATTACH '{ducklake_path}' AS {self.ducklake_name} (DATA_PATH '{data_path}/')"
+                    )
+                    logger.info(f"Created new DuckLake: {self.ducklake_name} with data path: {data_path}")
+            
+            # Use the DuckLake as default database
+            self.duck_conn.execute(f"USE {self.ducklake_name}")
+            
+            # Create schemas within DuckLake if they don't exist
             self.duck_conn.execute("CREATE SCHEMA IF NOT EXISTS bronze")
             self.duck_conn.execute("CREATE SCHEMA IF NOT EXISTS silver") 
             self.duck_conn.execute("CREATE SCHEMA IF NOT EXISTS gold")
-            logger.info(f"Connected to DuckLake metastore: {self.ducklake_path}")
+            
+            logger.info(f"Connected to DuckLake: {self.ducklake_name}")
+            
         return self.duck_conn
-    
-    def load_config(self, config_name: str) -> Dict[str, Any]:
-        """Load configuration from YAML file."""
-        config_path = self.config_dir / f"{config_name}.yml"
-        if not config_path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {config_path}")
-        
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        
-        logger.info(f"Loaded configuration: {config_path}")
-        return config
     
     def get_table_metadata(self, schema: str, table_name: str) -> Optional[Dict]:
         """Get table metadata from DuckLake catalog."""
         conn = self._get_duck_connection()
         try:
+            # Query DuckLake metadata tables
             result = conn.execute(f"""
-                SELECT * FROM information_schema.tables 
-                WHERE table_schema = '{schema}' AND table_name = '{table_name}'
+                SELECT 
+                    t.table_id,
+                    t.table_name,
+                    s.record_count,
+                    s.file_size_bytes,
+                    s.next_row_id
+                FROM ducklake_table t
+                LEFT JOIN ducklake_table_stats s ON t.table_id = s.table_id
+                WHERE t.table_name = '{table_name}'
+                AND t.schema_id = (
+                    SELECT schema_id FROM ducklake_schema 
+                    WHERE schema_name = '{schema}' 
+                    AND end_snapshot IS NULL
+                )
+                AND t.end_snapshot IS NULL
             """).fetchone()
             
             if result:
-                # Get additional metadata if stored
-                meta_result = conn.execute(f"""
-                    SELECT comment FROM information_schema.tables
-                    WHERE table_schema = '{schema}' AND table_name = '{table_name}'
-                """).fetchone()
-                
                 return {
                     'exists': True,
-                    'last_updated': datetime.now(),  # This would be enhanced with actual timestamp tracking
-                    'comment': meta_result[0] if meta_result and meta_result[0] else None
+                    'table_id': result[0],
+                    'table_name': result[1],
+                    'record_count': result[2] or 0,
+                    'file_size_bytes': result[3] or 0,
+                    'next_row_id': result[4] or 0
                 }
         except Exception as e:
-            logger.debug(f"Table {schema}.{table_name} not found in catalog: {e}")
+            logger.debug(f"Table {schema}.{table_name} not found in DuckLake catalog: {e}")
         
         return None
     
     def is_table_stale(self, schema: str, table_name: str, max_age_hours: int = 24) -> bool:
-        """Check if a table needs refreshing based on age."""
+        """Check if a table needs refreshing based on DuckLake snapshots."""
         metadata = self.get_table_metadata(schema, table_name)
         if not metadata:
             return True  # Table doesn't exist, needs extraction
         
-        # Simple staleness check - in production you'd track actual update times
-        parquet_path = self.data_dir / schema / f"{table_name}.parquet"
-        if not parquet_path.exists():
-            return True
+        conn = self._get_duck_connection()
         
-        file_age = datetime.now() - datetime.fromtimestamp(parquet_path.stat().st_mtime)
-        return file_age > timedelta(hours=max_age_hours)
+        # Check last snapshot time for this table
+        try:
+            result = conn.execute(f"""
+                SELECT MAX(s.snapshot_timestamp)
+                FROM ducklake_snapshot s
+                JOIN ducklake_snapshot_changes sc ON s.snapshot_id = sc.snapshot_id
+                WHERE sc.snapshot_changes LIKE '%table:{metadata['table_id']}%'
+            """).fetchone()
+            
+            if result and result[0]:
+                last_update = result[0]
+                if isinstance(last_update, str):
+                    last_update = datetime.fromisoformat(last_update.replace('+00', ''))
+                age = datetime.now() - last_update
+                return age > timedelta(hours=max_age_hours)
+        except Exception as e:
+            logger.debug(f"Could not determine table staleness: {e}")
+        
+        return True
     
     def extract_table(self, source_config: Dict, table_config: Dict, force: bool = False):
-        """Extract a single table from source to bronze layer."""
+        """Extract a single table from source to bronze layer using DuckLake."""
         table_name = table_config['name']
         schema = table_config.get('schema', 'dbo')
         full_table_name = f"{schema}.{table_name}"
         
         # Check if extraction is needed
         if not force and not self.is_table_stale('bronze', table_name):
-            logger.info(f"Table {table_name} is fresh, skipping extraction")
+            logger.info(f"Table {table_name} is fresh in DuckLake, skipping extraction")
             return
         
         logger.info(f"Extracting table: {full_table_name}")
@@ -160,57 +207,39 @@ class ParquetPipelines:
                 'description': table_config.get('description', f'Raw extract from {full_table_name}')
             }
             
-            # Save to parquet with metadata
-            output_path = self.data_dir / "bronze" / f"{table_name}.parquet"
+            # Write to DuckLake using CREATE OR REPLACE TABLE
+            conn = self._get_duck_connection()
             
-            # Convert to PyArrow table for metadata embedding
+            # Register DataFrame as temporary view
+            conn.register('temp_extract', df)
+            
+            # Create or replace table in DuckLake
+            conn.execute(f"""
+                CREATE OR REPLACE TABLE bronze.{table_name} AS 
+                SELECT * FROM temp_extract
+            """)
+            
+            # Add comment with metadata
+            conn.execute(f"""
+                COMMENT ON TABLE bronze.{table_name} IS '{json.dumps(metadata)}'
+            """)
+            
+            # Also export to Parquet for compatibility (optional)
+            output_path = self.data_dir / "bronze" / f"{table_name}.parquet"
             pa_table = pa.Table.from_pandas(df)
             pa_table = pa_table.replace_schema_metadata({
                 'parquet_pipelines_metadata': json.dumps(metadata)
             })
-            
             pq.write_table(pa_table, output_path)
             
-            # Register in DuckLake
-            conn = self._get_duck_connection()
-            conn.execute(f"DROP TABLE IF EXISTS bronze.{table_name}")
-            conn.execute(f"CREATE TABLE bronze.{table_name} AS SELECT * FROM '{output_path}'")
-            
-            logger.info(f"Saved to {output_path} and registered in DuckLake")
+            logger.info(f"Saved to DuckLake bronze.{table_name} and {output_path}")
             
         except Exception as e:
             logger.error(f"Failed to extract table {full_table_name}: {e}")
             raise
     
-    def _resolve_env_vars(self, value):
-        """Resolve environment variables in a string value like ${VAR}."""
-        import re, os
-        if isinstance(value, str):
-            pattern = re.compile(r'\$\{([^}]+)\}')
-            def replacer(match):
-                return os.environ.get(match.group(1), match.group(0))
-            return pattern.sub(replacer, value)
-        return value
-
-    def _build_connection_string(self, source_config: Dict) -> str:
-        """Build database connection string from configuration."""
-        connection = source_config.get('connection', {})
-        db_type = self._resolve_env_vars(connection.get('type', 'mssql'))
-        
-        if db_type == 'mssql':
-            server = self._resolve_env_vars(connection['server'])
-            database = self._resolve_env_vars(connection['database'])
-            if connection.get('trusted_connection', True):
-                return f"mssql+pyodbc://{server}/{database}?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
-            else:
-                username = self._resolve_env_vars(connection['username'])
-                password = self._resolve_env_vars(connection['password'])
-                return f"mssql+pyodbc://{username}:{password}@{server}/{database}?driver=ODBC+Driver+17+for+SQL+Server"
-        else:
-            raise ValueError(f"Unsupported database type: {db_type}")
-    
     def execute_sql_transformation(self, sql_file_path: Path, layer: str):
-        """Execute a SQL transformation file."""
+        """Execute a SQL transformation file in DuckLake."""
         if not sql_file_path.exists():
             raise FileNotFoundError(f"SQL file not found: {sql_file_path}")
         
@@ -223,442 +252,102 @@ class ParquetPipelines:
         
         logger.info(f"Executing {layer} transformation: {table_name}")
         
-        # Execute SQL
+        # Execute SQL in DuckLake
         conn = self._get_duck_connection()
         
         try:
             # Execute the SQL (should contain CREATE OR REPLACE TABLE statement)
             conn.execute(content)
             
-            # Export to parquet
+            # Add comment with metadata
+            if metadata:
+                metadata['execution_time'] = datetime.now().isoformat()
+                metadata['layer'] = layer
+                conn.execute(f"""
+                    COMMENT ON TABLE {layer}.{table_name} IS '{json.dumps(metadata)}'
+                """)
+            
+            # Export to Parquet for compatibility (optional)
             output_path = self.data_dir / layer / f"{table_name}.parquet"
-            conn.execute(f"COPY {layer}.{table_name} TO '{output_path}' (FORMAT PARQUET)")
+            conn.execute(f"""
+                COPY {layer}.{table_name} TO '{output_path}' (FORMAT PARQUET)
+            """)
             
-            # Update metadata
-            metadata.update({
-                'execution_time': datetime.now().isoformat(),
-                'layer': layer,
-                'output_path': str(output_path)
-            })
-            
-            logger.info(f"Completed transformation: {table_name} -> {output_path}")
+            logger.info(f"Completed transformation: {table_name} in DuckLake and exported to {output_path}")
             
         except Exception as e:
             logger.error(f"Failed to execute SQL transformation {sql_file_path}: {e}")
             raise
     
-    def _parse_sql_metadata(self, sql_content: str) -> Dict[str, Any]:
-        """Parse metadata header from SQL file."""
-        metadata = {}
-        lines = sql_content.split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if line.startswith('--') and ':' in line:
-                # Parse metadata line: -- key: value
-                parts = line[2:].strip().split(':', 1)
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip()
-                    metadata[key] = value
-            elif not line.startswith('--') and line:
-                # End of header comments
-                break
-        
-        return metadata
+    def query_ducklake(self, query: str):
+        """Execute a query against DuckLake and return results."""
+        conn = self._get_duck_connection()
+        return conn.execute(query).fetchall()
     
-    def run_pipeline(self, pipeline_config: Dict):
-        """Execute a complete pipeline."""
-        logger.info(f"Starting pipeline: {pipeline_config.get('name', 'unnamed')}")
+    def get_ducklake_stats(self):
+        """Get statistics about the DuckLake catalog."""
+        conn = self._get_duck_connection()
         
-        # Execute transformation steps in order
-        for step in pipeline_config.get('steps', []):
-            if step.startswith('sql/silver/'):
-                sql_path = self.base_dir / step
-                self.execute_sql_transformation(sql_path, 'silver')
-            elif step.startswith('sql/gold/'):
-                sql_path = self.base_dir / step
-                self.execute_sql_transformation(sql_path, 'gold')
-            else:
-                logger.warning(f"Unknown step type: {step}")
-        
-        logger.info("Pipeline completed successfully")
-    
-    def run_named_pipeline(self, pipeline_name: str):
-        """Execute a named pipeline."""
-        named_pipelines = self.load_config('named_pipelines')
-        
-        if pipeline_name not in named_pipelines:
-            raise ValueError(f"Named pipeline '{pipeline_name}' not found")
-        
-        pipeline_config = named_pipelines[pipeline_name]
-        logger.info(f"Running named pipeline: {pipeline_name}")
-        logger.info(f"Description: {pipeline_config.get('description', 'No description')}")
-        
-        # Extract required tables if needed
-        if 'extract' in pipeline_config:
-            source_config = self.load_config('source_tables')
-            extract_config = pipeline_config['extract']
-            
-            for table_name in extract_config.get('tables', []):
-                # Find table config
-                table_config = None
-                for table in source_config.get('tables', []):
-                    if table['name'] == table_name.split('.')[-1]:  # Handle schema.table format
-                        table_config = table
-                        break
-                
-                if table_config:
-                    self.extract_table(source_config, table_config)
-                else:
-                    logger.warning(f"Table configuration not found for: {table_name}")
-        
-        # Run transformation steps
-        if 'transform' in pipeline_config:
-            self.run_pipeline(pipeline_config['transform'])
-    
-    def init_project(self):
-        """Initialize a new Parquet Pipelines project."""
-        logger.info("Initializing new Parquet Pipelines project...")
-        
-        # Create example configurations
-        self._create_example_configs()
-        self._create_example_sql()
-        self._create_gitignore()
-        self._create_readme()
-        
-        logger.info("Project initialized successfully!")
-        logger.info("Next steps:")
-        logger.info("1. Edit config/source_tables.yml with your database connection")
-        logger.info("2. Run: python -m parquet_pipelines extract --all")
-        logger.info("3. Create SQL transformations in sql/silver/ and sql/gold/")
-        logger.info("4. Run: python -m parquet_pipelines run --pipeline main")
-    
-    def _create_example_configs(self):
-        """Create example configuration files."""
-        
-        # Source tables config
-        source_config = {
-            'connection': {
-                'type': 'mssql',
-                'server': 'localhost\\SQLEXPRESS',
-                'database': 'YourDatabase',
-                'trusted_connection': True
-            },
-            'tables': [
-                {
-                    'name': 'customers',
-                    'schema': 'dbo',
-                    'description': 'Customer master data',
-                    'query': 'SELECT * FROM dbo.customers'
-                },
-                {
-                    'name': 'orders',
-                    'schema': 'dbo', 
-                    'description': 'Order transactions',
-                    'query': 'SELECT * FROM dbo.orders'
-                }
-            ]
+        stats = {
+            'snapshots': conn.execute("SELECT COUNT(*) FROM ducklake_snapshot").fetchone()[0],
+            'schemas': conn.execute("SELECT COUNT(*) FROM ducklake_schema WHERE end_snapshot IS NULL").fetchone()[0],
+            'tables': conn.execute("SELECT COUNT(*) FROM ducklake_table WHERE end_snapshot IS NULL").fetchone()[0],
+            'data_files': conn.execute("SELECT COUNT(*) FROM ducklake_data_file").fetchone()[0],
+            'total_size_bytes': conn.execute("SELECT SUM(file_size_bytes) FROM ducklake_data_file").fetchone()[0] or 0
         }
         
-        with open(self.config_dir / 'source_tables.yml', 'w') as f:
-            yaml.dump(source_config, f, default_flow_style=False)
+        # Get table details
+        tables = conn.execute("""
+            SELECT 
+                s.schema_name,
+                t.table_name,
+                ts.record_count,
+                ts.file_size_bytes
+            FROM ducklake_table t
+            JOIN ducklake_schema s ON t.schema_id = s.schema_id
+            LEFT JOIN ducklake_table_stats ts ON t.table_id = ts.table_id
+            WHERE t.end_snapshot IS NULL AND s.end_snapshot IS NULL
+            ORDER BY s.schema_name, t.table_name
+        """).fetchall()
         
-        # Main pipeline config
-        pipeline_config = {
-            'name': 'main',
-            'description': 'Main transformation pipeline',
-            'steps': [
-                'sql/silver/customers_cleaned.sql',
-                'sql/silver/orders_cleaned.sql',
-                'sql/gold/fact_sales.sql',
-                'sql/gold/dim_customers.sql'
-            ]
-        }
-        
-        with open(self.config_dir / 'pipeline.yml', 'w') as f:
-            yaml.dump(pipeline_config, f, default_flow_style=False)
-        
-        # Named pipelines config
-        named_pipelines = {
-            'daily_refresh': {
-                'description': 'Daily data refresh for reporting',
-                'extract': {
-                    'tables': ['dbo.customers', 'dbo.orders'],
-                    'only_if': {
-                        'last_updated': '<TODAY'
-                    }
-                },
-                'transform': {
-                    'steps': [
-                        'sql/silver/customers_cleaned.sql',
-                        'sql/gold/dim_customers.sql'
-                    ]
-                }
+        stats['tables_detail'] = [
+            {
+                'schema': t[0],
+                'table': t[1],
+                'rows': t[2] or 0,
+                'size_bytes': t[3] or 0
             }
-        }
+            for t in tables
+        ]
         
-        with open(self.config_dir / 'named_pipelines.yml', 'w') as f:
-            yaml.dump(named_pipelines, f, default_flow_style=False)
+        return stats
     
-    def _create_example_sql(self):
-        """Create example SQL transformation files."""
+    def time_travel_query(self, table: str, version: Optional[int] = None, timestamp: Optional[str] = None):
+        """Query a table at a specific version or timestamp using DuckLake time travel."""
+        conn = self._get_duck_connection()
         
-        # Silver layer example
-        silver_sql = """-- name: customers_cleaned
--- layer: silver
--- description: Clean and standardize customer data
--- depends_on: bronze.customers
-
-CREATE OR REPLACE TABLE silver.customers_cleaned AS
-SELECT 
-    customer_id,
-    TRIM(UPPER(first_name)) AS first_name,
-    TRIM(UPPER(last_name)) AS last_name,
-    LOWER(TRIM(email)) AS email,
-    phone,
-    address,
-    city,
-    state,
-    zip_code,
-    created_date,
-    updated_date
-FROM bronze.customers
-WHERE customer_id IS NOT NULL
-    AND email IS NOT NULL
-    AND email LIKE '%@%.%';
-"""
+        if version is not None:
+            query = f"SELECT * FROM {table} AT (VERSION => {version})"
+        elif timestamp:
+            query = f"SELECT * FROM {table} AT (TIMESTAMP => '{timestamp}')"
+        else:
+            query = f"SELECT * FROM {table}"
         
-        with open(self.sql_dir / 'silver' / 'customers_cleaned.sql', 'w') as f:
-            f.write(silver_sql)
-        
-        # Gold layer example
-        gold_sql = """-- name: dim_customers
--- layer: gold
--- description: Customer dimension table for analytics
--- depends_on: silver.customers_cleaned
-
-CREATE OR REPLACE TABLE gold.dim_customers AS
-SELECT 
-    customer_id,
-    first_name,
-    last_name,
-    full_name || ' (' || email || ')' AS customer_display_name,
-    email,
-    phone,
-    address,
-    city,
-    state,
-    zip_code,
-    DATE_TRUNC('month', created_date) AS signup_month,
-    DATEDIFF('day', created_date, CURRENT_DATE) AS days_since_signup,
-    CASE 
-        WHEN DATEDIFF('day', created_date, CURRENT_DATE) <= 30 THEN 'New'
-        WHEN DATEDIFF('day', created_date, CURRENT_DATE) <= 365 THEN 'Active'
-        ELSE 'Veteran'
-    END AS customer_segment
-FROM silver.customers_cleaned;
-"""
-        
-        with open(self.sql_dir / 'gold' / 'dim_customers.sql', 'w') as f:
-            f.write(gold_sql)
+        return conn.execute(query).fetchdf()
     
-    def _create_gitignore(self):
-        """Create .gitignore file to exclude data directory."""
-        gitignore_content = """# Parquet Pipelines - Exclude data and database files
-/data/
-*.duckdb
-*.duckdb.wal
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-.venv/
-.env
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-"""
-        
-        with open(self.base_dir / '.gitignore', 'w') as f:
-            f.write(gitignore_content)
+    # ... (keep all other existing methods like _parse_sql_metadata, _build_connection_string, etc.)
     
-    def _create_readme(self):
-        """Create README.md file."""
-        readme_content = """# Parquet Pipelines
-
-A minimal, SQL-first data transformation framework for teams migrating from stored procedures to modern analytics.
-
-## Quick Start
-
-1. **Initialize project** (if not already done):
-   ```bash
-   python -m parquet_pipelines init
-   ```
-
-2. **Configure your database connection**:
-   Edit `config/source_tables.yml` with your database details.
-
-3. **Extract data**:
-   ```bash
-   # Extract all configured tables
-   python -m parquet_pipelines extract --all
-   
-   # Extract specific table
-   python -m parquet_pipelines extract --table customers
-   ```
-
-4. **Run transformations**:
-   ```bash
-   # Run main pipeline
-   python -m parquet_pipelines run --pipeline main
-   
-   # Run named pipeline
-   python -m parquet_pipelines run --named daily_refresh
-   ```
-
-## Directory Structure
-
-```
-├── config/
-│   ├── source_tables.yml      # Database connection and table definitions
-│   ├── pipeline.yml           # Main transformation pipeline
-│   └── named_pipelines.yml    # Named, reusable pipelines
-├── sql/
-│   ├── silver/               # Data cleaning transformations
-│   └── gold/                 # Business logic transformations
-├── data/                     # Generated data files (gitignored)
-│   ├── bronze/              # Raw extracted data
-│   ├── silver/              # Cleaned data
-│   └── gold/                # Analytics-ready data
-└── ducklake_meta.duckdb     # DuckLake catalog metadata
-```
-
-## SQL File Format
-
-All SQL files must include a metadata header:
-
-```sql
--- name: table_name
--- layer: silver|gold
--- description: What this transformation does
--- depends_on: bronze.source_table
-
-CREATE OR REPLACE TABLE silver.table_name AS
-SELECT ...
-```
-
-## Commands
-
-- `init`: Initialize new project with example configs
-- `extract`: Extract data from source systems to bronze layer
-- `run`: Execute transformation pipelines
-- `status`: Show pipeline status and table freshness
-
-## Features
-
-- ✅ SQL-first transformations
-- ✅ Automatic dependency management
-- ✅ Embedded metadata in output files
-- ✅ DuckLake integration for queryable catalog
-- ✅ Portable across Windows/Docker/Cloud
-- ✅ No external orchestration required
-- ✅ Power BI ready outputs
-"""
-        
-        with open(self.base_dir / 'README.md', 'w') as f:
-            f.write(readme_content)
-
-
-def main():
-    """CLI entry point."""
-    parser = argparse.ArgumentParser(description='Parquet Pipelines - SQL-first data transformation framework')
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
-    
-    # Init command
-    subparsers.add_parser('init', help='Initialize new Parquet Pipelines project')
-    
-    # Extract command
-    extract_parser = subparsers.add_parser('extract', help='Extract data from source systems')
-    extract_parser.add_argument('--all', action='store_true', help='Extract all configured tables')
-    extract_parser.add_argument('--table', help='Extract specific table')
-    extract_parser.add_argument('--force', action='store_true', help='Force extraction even if data is fresh')
-    
-    # Run command
-    run_parser = subparsers.add_parser('run', help='Run transformation pipelines')
-    run_parser.add_argument('--pipeline', help='Run pipeline from pipeline.yml')
-    run_parser.add_argument('--named', help='Run named pipeline')
-    
-    # Status command
-    subparsers.add_parser('status', help='Show pipeline status')
-    
-    args = parser.parse_args()
-    
-    if not args.command:
-        parser.print_help()
-        return
-    
-    # Initialize framework
-    pp = ParquetPipelines()
-    
-    try:
-        if args.command == 'init':
-            pp.init_project()
-            
-        elif args.command == 'extract':
-            source_config = pp.load_config('source_tables')
-            
-            if args.all:
-                for table_config in source_config.get('tables', []):
-                    pp.extract_table(source_config, table_config, force=args.force)
-            elif args.table:
-                table_config = None
-                for table in source_config.get('tables', []):
-                    if table['name'] == args.table:
-                        table_config = table
-                        break
-                
-                if table_config:
-                    pp.extract_table(source_config, table_config, force=args.force)
-                else:
-                    logger.error(f"Table '{args.table}' not found in configuration")
-                    return 1
-            else:
-                logger.error("Must specify --all or --table")
-                return 1
-                
-        elif args.command == 'run':
-            if args.pipeline:
-                pipeline_config = pp.load_config('pipeline')
-                pp.run_pipeline(pipeline_config)
-            elif args.named:
-                pp.run_named_pipeline(args.named)
-            else:
-                logger.error("Must specify --pipeline or --named")
-                return 1
-                
-        elif args.command == 'status':
-            # TODO: Implement status command
-            logger.info("Status command not yet implemented")
-            
-    except Exception as e:
-        logger.error(f"Command failed: {e}")
-        return 1
-    
-    return 0
-
-
-if __name__ == '__main__':
-    sys.exit(main())
+    def cleanup(self):
+        """Clean up resources and detach from DuckLake."""
+        if self.duck_conn:
+            try:
+                # Switch to memory database before detaching
+                self.duck_conn.execute("USE memory")
+                # Detach DuckLake
+                self.duck_conn.execute(f"DETACH {self.ducklake_name}")
+                logger.info(f"Detached from DuckLake: {self.ducklake_name}")
+            except:
+                pass
+            finally:
+                self.duck_conn.close()
+                self.duck_conn = None

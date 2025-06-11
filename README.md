@@ -323,3 +323,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 *Transform your stored procedures into portable, version-controlled data pipelines today!*
 
 by Peter :)
+
+Now with added Ducklake
